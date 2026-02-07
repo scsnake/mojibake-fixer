@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mojibake Fixer Demo (Latin-1/CP1252 &rarr; Big5)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f7;
+            color: #333;
+        }
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            font-family: monospace;
+            resize: vertical;
+            box-sizing: border-box;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.2);
+        }
+
+        button {
+            display: block;
+            width: 100%;
+            padding: 12px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        .result-group {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+
+        .footer {
+            margin-top: 40px;
+            text-align: center;
+            font-size: 14px;
+            color: #888;
+        }
+
+        .error {
+            color: #e74c3c;
+            margin-top: 5px;
+            font-size: 14px;
+            display: none;
+        }
+
+        /* Highlight specific chars handling */
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            font-size: 12px;
+            border-radius: 4px;
+            background-color: #eef2f7;
+            color: #555;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Mojibake Fixer Demo</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 25px;">
+            Fixes text that was Big5-encoded (Traditional Chinese) but incorrectly decoded as Latin-1 or Windows-1252.
+        </p>
+
+        <div class="form-group">
+            <label for="input">Input Text (Mojibake):</label>
+            <textarea id="input" placeholder="Paste garbage text here, e.g., µL³y¼v¾¯">Rt ANKLE CT (µL³y¼v¾¯)</textarea>
+        </div>
+
+        <button onclick="fixText()">Fix Encoding</button>
+
+        <div class="result-group">
+            <label for="output">Fixed Text (Big5):</label>
+            <textarea id="output" readonly placeholder="Result will appear here..."></textarea>
+            <div id="error" class="error"></div>
+        </div>
+
+        <div style="margin-top: 15px;">
+            <span class="badge">Latin-1 &rarr; Big5</span>
+            <span class="badge">CP1252 &rarr; Big5</span>
+            <span class="badge">Mixed Content Supported</span>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Runs entirely in your browser. No data is sent to any server.</p>
+        <p><a href="https://github.com/scsnake" target="_blank" style="color: #3498db; text-decoration: none;">View on
+                GitHub</a></p>
+    </div>
+
+    <script>
+        // Mapping for CP1252 specific characters (0x80-0x9F) to their byte values
+        // Unicode Code Point -> Byte Value
+        const CP1252_MAP = {
+            8364: 128, // €
+            129: 129,  // (Not used in CP1252 but kept for completeness)
+            8218: 130, // ‚
+            402: 131,  // ƒ
+            8222: 132, // „
+            8230: 133, // …
+            8224: 134, // †
+            8225: 135, // ‡
+            710: 136,  // ˆ
+            8240: 137, // ‰
+            352: 138,  // Š
+            8249: 139, // ‹
+            338: 140,  // Œ
+            141: 141,  // (Not used)
+            381: 142,  // Ž
+            143: 143,  // (Not used)
+            144: 144,  // (Not used)
+            8216: 145, // ‘
+            8217: 146, // ’
+            8220: 147, // “
+            8221: 148, // ”
+            8226: 149, // •
+            8211: 150, // –
+            8212: 151, // —
+            732: 152,  // ˜
+            8482: 153, // ™
+            353: 154,  // š
+            8250: 155, // ›
+            339: 156,  // œ
+            157: 157,  // (Not used)
+            382: 158,  // ž
+            376: 159   // Ÿ
+        };
+
+        function fixText() {
+            const input = document.getElementById('input').value;
+            const outputField = document.getElementById('output');
+            const errorField = document.getElementById('error');
+
+            errorField.style.display = 'none';
+            errorField.textContent = '';
+
+            if (!input) {
+                outputField.value = '';
+                return;
+            }
+
+            try {
+                // Strategy: Convert string to bytes (Reverse Latin-1/CP1252)
+                // This handles Big5 characters split into multiple "Latin-1" chars correctly (e.g. µL -> B5 4C -> one Big5 char)
+                const bytes = new Uint8Array(input.length);
+
+                for (let i = 0; i < input.length; i++) {
+                    const code = input.charCodeAt(i);
+
+                    // Specific mapping for CP1252 chars 0x80-0x9F
+                    if (CP1252_MAP[code]) {
+                        bytes[i] = CP1252_MAP[code];
+                    }
+                    // Standard Latin-1 range (0-255)
+                    else if (code < 256) {
+                        bytes[i] = code;
+                    }
+                    // Unknown or replacement char
+                    else {
+                        // Use '?' (0x3F) for unmappable chars to preserve length/alignment if possible
+                        bytes[i] = 0x3F;
+                    }
+                }
+
+                // Decode as Big5
+                const decoder = new TextDecoder("big5");
+                const result = decoder.decode(bytes);
+                outputField.value = result;
+
+            } catch (e) {
+                console.error(e);
+                outputField.value = "Error: " + e.message;
+                errorField.textContent = "Conversion failed.";
+                errorField.style.display = 'block';
+            }
+        }
+
+    </script>
+</body>
+
+</html>
